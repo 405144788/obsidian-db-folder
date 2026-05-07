@@ -1,0 +1,22 @@
+# Intellij
+*.iml
+.idea
+
+# npm
+node_modules
+coverage
+
+# build
+main.js
+*.js.map
+
+# obsidian
+data.json
+.DS_Store
+.obsidian/
+
+# Mkdocs
+site/
+
+# VSCode
+*.code-workspace

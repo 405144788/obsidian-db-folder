@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+      "baseUrl": "src",
+      "paths": {
+          "@features/*": ["lib/features/*"]
+        },
+      "inlineSources": true,
+      "sourceMap": true,
+      "module": "ESNext",
+      "target": "es6",
+      "allowJs": true,
+      "noImplicitAny": true,
+      "moduleResolution": "Node",
+      "importHelpers": true,
+      "esModuleInterop": true,
+      "allowSyntheticDefaultImports": true,
+      "experimentalDecorators": true,
+      "lib": ["dom", "es6", "scripthost", "es2019", "ES2021","es2022"],
+      "jsx": "react"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
+}
