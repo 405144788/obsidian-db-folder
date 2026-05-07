@@ -1,12 +1,10 @@
 {
-	"id": "dbfolder",
-	"name": "DB Folder",
-	"version": "3.5.1",
+	"id": "dbfolder-community",
+	"name": "DB Folder (Community)",
+	"version": "3.5.2",
 	"minAppVersion": "1.1.1",
-	"description": "Folder with the capability to store and retrieve data from a folder like database",
-	"author": "RafaelGB",
-	"authorUrl": "https://github.com/RafaelGB/obsidian-bd-folder",
-	"isDesktopOnly": false,
-	"fundingUrl": "https://www.buymeacoffee.com/5tsytn22v9Z",
-	"helpUrl": "https://rafaelgb.github.io/obsidian-db-folder/"
+	"description": "Community-maintained Notion-like database for Obsidian. Fork of RafaelGB/obsidian-db-folder with image column support.",
+	"author": "405144788",
+	"authorUrl": "https://github.com/405144788/obsidian-db-folder",
+	"isDesktopOnly": false
 }
