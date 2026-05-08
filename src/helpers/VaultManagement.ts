@@ -97,7 +97,7 @@ async function adapterFolderFast(dbFile: TFile, columns: TableColumn[], ddbbConf
   if (targetFiles.length === 0) return rows;
 
   // Parallel read all files in batches
-  const BATCH = 80;
+  const BATCH = 400;
   for (let i = 0; i < targetFiles.length; i += BATCH) {
     const batch = targetFiles.slice(i, i + BATCH);
 
@@ -206,7 +206,7 @@ export async function adapterTFilesToRows(dbFile: TFile, columns: TableColumn[],
   }
 
   // Process uncached in parallel batches with async I/O
-  const BATCH_SIZE = 64;
+  const BATCH_SIZE = 400;
   for (let i = 0; i < uncachedPages.length; i += BATCH_SIZE) {
     const batch = uncachedPages.slice(i, i + BATCH_SIZE);
     // Parallel read all files in this batch
