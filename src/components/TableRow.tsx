@@ -6,7 +6,7 @@ import React, { CSSProperties } from "react";
 import { MdFileComponent } from "components/obsidianArq/embedMdInteractive";
 import { TableRowProps } from "cdm/RowTypeModel";
 
-export default function TableRow(tableRowProps: TableRowProps) {
+function TableRowInner(tableRowProps: TableRowProps) {
   const { row, table } = tableRowProps;
   const { view, tableState } = table.options.meta;
 
@@ -18,7 +18,7 @@ export default function TableRow(tableRowProps: TableRowProps) {
     rowClasses.push("row-selected");
   } else if (
     view.plugin.settings.global_settings.enable_row_shadow &&
-    (table.getRowModel().flatRows.indexOf(row) + 1) % 2
+    (row.index + 1) % 2
   ) {
     rowClasses.push("row-shadow");
   }
@@ -70,3 +70,6 @@ export default function TableRow(tableRowProps: TableRowProps) {
     </>
   );
 }
+
+const TableRow = React.memo(TableRowInner);
+export default TableRow;
