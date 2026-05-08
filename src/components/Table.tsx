@@ -334,8 +334,9 @@ export function Table(tableData: TableDataType) {
                     style={{
                       position: "absolute",
                       top: 0,
+                      left: 0,
                       transform: `translateY(${virtualRow.start}px)`,
-                      width: "100%",
+                      width: table.getCenterTotalSize(),
                     }}
                   >
                     <TableRow
