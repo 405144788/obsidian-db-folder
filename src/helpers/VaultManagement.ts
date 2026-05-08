@@ -14,12 +14,12 @@ import { tableFilter } from '@features/filters';
 import { FilterSettings } from '@features/filters/model/FiltersModel';
 
 
-const noBreakSpace = /\u00A0/g;
+const noBreakSpace = / /g;
 
 /**
  * Check if content has frontmatter
- * @param data 
- * @returns 
+ * @param data
+ * @returns
  */
 export function hasFrontmatter(data: string): boolean {
   if (!data) return false;
@@ -72,13 +72,9 @@ export function getNormalizedPath(path: string): NormalizedPath {
 }
 
 /**
- * With the use of Dataview and the folder path, we can obtain an array of rows
- * @param folderPath 
- * @returns 
- */
-/**
  * Fast path: bypass Dataview for folder-based sources.
  * Uses parallel vault.read() + parseYaml() for much faster initial load.
+ * No setTimeout between batches — data load completes in one synchronous block after parallel I/O.
  */
 async function adapterFolderFast(dbFile: TFile, columns: TableColumn[], ddbbConfig: LocalSettings, filters: FilterSettings, folderPath: string, includeSubfolders: boolean): Promise<Array<RowDataType>> {
   RowCacheService.init(dbFile.path);
@@ -96,68 +92,55 @@ async function adapterFolderFast(dbFile: TFile, columns: TableColumn[], ddbbConf
 
   if (targetFiles.length === 0) return rows;
 
-  // Parallel read all files in batches
-  const BATCH = 400;
-  for (let i = 0; i < targetFiles.length; i += BATCH) {
-    const batch = targetFiles.slice(i, i + BATCH);
+  // Read ALL files in one parallel burst (no batching needed for ~850 files)
+  const rawContents = await Promise.all(
+    targetFiles.map(f => app.vault.read(f).catch(() => ""))
+  );
 
-    // Parallel I/O: read all files at once
-    const rawContents = await Promise.all(
-      batch.map(f => app.vault.read(f).catch(() => ""))
-    );
+  // Process inline — no setTimeout yield
+  for (let j = 0; j < targetFiles.length; j++) {
+    const file = targetFiles[j];
+    const raw = rawContents[j];
+    const mtime = file.stat.mtime;
 
-    // Process batch with UI yield
-    await new Promise<void>(resolve => {
-      setTimeout(() => {
-        for (let j = 0; j < batch.length; j++) {
-          const file = batch[j];
-          const raw = rawContents[j];
-          const mtime = file.stat.mtime;
+    // Check cache
+    const cached = RowCacheService.get(file.path, mtime);
+    if (cached) {
+      rows.push(cached);
+      continue;
+    }
 
-          // Check cache
-          const cached = RowCacheService.get(file.path, mtime);
-          if (cached) {
-            rows.push(cached);
-            continue;
-          }
+    // Parse frontmatter directly
+    let fm: Record<string, any> = {};
+    if (raw.startsWith("---")) {
+      const end = raw.indexOf("---", 4);
+      if (end > 0) {
+        const fmRaw = raw.substring(4, end);
+        try { fm = parseYaml(fmRaw) || {}; } catch { fm = {}; }
+      }
+    }
 
-          // Parse frontmatter directly
-          let fm: Record<string, any> = {};
-          let fileContent = raw;
-          if (raw.startsWith("---")) {
-            const end = raw.indexOf("---", 4);
-            if (end > 0) {
-              const fmRaw = raw.substring(4, end);
-              fileContent = raw.substring(end + 3);
-              try { fm = parseYaml(fmRaw) || {}; } catch { fm = {}; }
-            }
-          }
+    // Build RowDataType
+    const row: RowDataType = {
+      __note__: undefined,
+      [MetadataColumns.FILE]: app.metadataCache.fileToLinktext(file, file.path, false),
+      [MetadataColumns.CREATED]: file.stat.ctime,
+      [MetadataColumns.MODIFIED]: mtime,
+      [MetadataColumns.TASKS]: [],
+      [MetadataColumns.OUTLINKS]: [],
+      [MetadataColumns.INLINKS]: [],
+      [MetadataColumns.TAGS]: [],
+    };
 
-          // Build RowDataType (replicating NoteInfo.getRowDataType)
-          const row: RowDataType = {
-            __note__: undefined,
-            [MetadataColumns.FILE]: app.metadataCache.fileToLinktext(file, file.path, false),
-            [MetadataColumns.CREATED]: file.stat.ctime,
-            [MetadataColumns.MODIFIED]: mtime,
-            [MetadataColumns.TASKS]: [],
-            [MetadataColumns.OUTLINKS]: [],
-            [MetadataColumns.INLINKS]: [],
-            [MetadataColumns.TAGS]: [],
-          };
+    // Map column keys from frontmatter
+    for (const col of columns) {
+      if (fm[col.key] !== undefined) {
+        row[col.key] = fm[col.key];
+      }
+    }
 
-          // Map column keys from frontmatter
-          for (const col of columns) {
-            if (fm[col.key] !== undefined) {
-              row[col.key] = fm[col.key];
-            }
-          }
-
-          RowCacheService.set(file.path, mtime, row);
-          rows.push(row);
-        }
-        resolve();
-      }, 0);
-    });
+    RowCacheService.set(file.path, mtime, row);
+    rows.push(row);
   }
 
   return rows;
@@ -205,31 +188,20 @@ export async function adapterTFilesToRows(dbFile: TFile, columns: TableColumn[],
     }
   }
 
-  // Process uncached in parallel batches with async I/O
-  const BATCH_SIZE = 400;
-  for (let i = 0; i < uncachedPages.length; i += BATCH_SIZE) {
-    const batch = uncachedPages.slice(i, i + BATCH_SIZE);
-    // Parallel read all files in this batch
+  // Process uncached in one parallel burst
+  if (uncachedPages.length > 0) {
     const fileContents = await Promise.all(
-      batch.map(page => app.vault.read(page.file.path).catch(() => ""))
+      uncachedPages.map(page => app.vault.read(page.file.path).catch(() => ""))
     );
-    // Parse YAML with regex + Obsidian parseYaml in parallel-like chunk
-    await new Promise<void>(resolve => {
-      setTimeout(() => {
-        for (let j = 0; j < batch.length; j++) {
-          const page = batch[j];
-          const rawContent = fileContents[j];
-          // Fast path: if we have raw content, use it to extract frontmatter
-          // Otherwise fall back to NoteInfo.getRowDataType (Dataview-backed)
-          const noteInfo = new NoteInfo(page);
-          const rowData = noteInfo.getRowDataType(columns);
-          const mtime = page.file.mtime?.valueOf() ?? 0;
-          RowCacheService.set(page.file.path, mtime, rowData);
-          cachedRows.set(page, rowData);
-        }
-        resolve();
-      }, 0);
-    });
+    // Parse inline — no setTimeout yield
+    for (let j = 0; j < uncachedPages.length; j++) {
+      const page = uncachedPages[j];
+      const noteInfo = new NoteInfo(page);
+      const rowData = noteInfo.getRowDataType(columns);
+      const mtime = page.file.mtime?.valueOf() ?? 0;
+      RowCacheService.set(page.file.path, mtime, rowData);
+      cachedRows.set(page, rowData);
+    }
   }
 
   // Assemble final rows (preserving original order)
