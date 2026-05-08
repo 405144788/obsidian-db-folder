@@ -326,11 +326,13 @@ export function Table(tableData: TableDataType) {
                     );
                   })
               : null}
-            {/* ENDS FOOTER */}
+              {/* ENDS FOOTER */}
           </div>
           {/* ENDS TABLE */}
         </div>
-        {/* ENDS SCROLL PANE */}
+        {/* ENDS SPACER */}
+      </div>
+      {/* ENDS SCROLL CONTAINER */}
       </div>
       {/* INIT PAGINATION */}
       <PaginationTable table={table} />
