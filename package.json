@@ -52,6 +52,7 @@
 		"@popperjs/core": "2.11.8",
 		"@tanstack/match-sorter-utils": "8.11.3",
 		"@tanstack/react-table": "8.11.6",
+		"@tanstack/react-virtual": "^3.13.24",
 		"eventemitter3": "5.0.1",
 		"fuse.js": "7.0.0",
 		"luxon": "3.4.4",

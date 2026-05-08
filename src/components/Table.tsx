@@ -15,7 +15,9 @@ import {
   getFacetedRowModel,
   getFacetedMinMaxValues,
   getFacetedUniqueValues,
+  flexRender,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { TableDataType, RowDataType, TableColumn } from "cdm/FolderModel";
 import StateManager from "StateManager";
 import {
@@ -30,7 +32,6 @@ import DefaultHeader from "components/DefaultHeader";
 import { c } from "helpers/StylesHelper";
 import { HeaderNavBar } from "components/NavBar";
 import TableHeader from "components/TableHeader";
-import TableRow from "components/TableRow";
 import TableFooter from "components/TableFooter";
 import DefaultFooter from "components/DefaultFooter";
 import getInitialColumnSizing from "components/behavior/InitialColumnSizeRecord";
@@ -38,7 +39,7 @@ import customSortingfns, {
   globalDatabaseFilterFn,
 } from "components/reducers/TableFilterFlavours";
 import dbfolderColumnSortingFn from "components/reducers/CustomSortingFn";
-import { useState } from "react";
+import { useState, useRef, useMemo } from "react";
 import {
   obsidianMdLinksOnClickCallback,
   obsidianMdLinksOnMouseOverMenuCallback,
@@ -46,6 +47,10 @@ import {
 import HeaderContextMenuWrapper from "components/contextMenu/HeaderContextMenuWrapper";
 import TableActions from "components/tableActions/TableActions";
 import onKeyDownArrowKeys from "./behavior/ArrowKeysNavigation";
+import { Cell, flexRender as flexRenderFn } from "@tanstack/react-table";
+import { Literal } from "obsidian-dataview";
+
+const ROW_HEIGHT = 36; // estimated row height in px
 
 const defaultColumn: Partial<ColumnDef<RowDataType>> = {
   minSize: DatabaseLimits.MIN_COLUMN_WIDTH,
@@ -56,13 +61,7 @@ const defaultColumn: Partial<ColumnDef<RowDataType>> = {
   footer: DefaultFooter,
 };
 
-/**
- * Table component based on react-table
- * @param tableDataType
- * @returns
- */
 export function Table(tableData: TableDataType) {
-  /** Main information about the table */
   const { view, tableStore } = tableData;
   const columns = tableStore.columns((state) => state.columns);
   const columnActions = tableStore.columns((state) => state.actions);
@@ -79,30 +78,21 @@ export function Table(tableData: TableDataType) {
 
   const globalConfig = tableStore.configState((store) => store.global);
   const configInfo = tableStore.configState((store) => store.info);
-  /** Plugin services */
   const stateManager: StateManager = tableData.stateManager;
   const filePath = stateManager.file.path;
 
-  /** Table services */
-  // Actions
-
-  // Sorting
   const [sortBy, sortActions] = tableStore.sorting((store) => [
     store.sortBy,
     store.actions,
   ]);
-  // Visibility
   const [columnVisibility, setColumnVisibility] = useState(
     columnsInfo.getVisibilityRecord()
   );
-  // Filtering
   const [globalFilter, setGlobalFilter] = useState("");
-  // Resizing
   const [columnSizing, setColumnSizing] = useState(
     getInitialColumnSizing(columns)
   );
   const [persistSizingTimeout, setPersistSizingTimeout] = useState(null);
-  // Drag and drop
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(
     columnsInfo.getValueOfAllColumnsAsociatedWith("id")
   );
@@ -119,7 +109,7 @@ export function Table(tableData: TableDataType) {
     );
     return [...columnOrder];
   };
-  // Niveling number of columns
+
   if (columnOrder.length !== columns.length) {
     setColumnOrder(columnsInfo.getValueOfAllColumnsAsociatedWith("id"));
   }
@@ -163,25 +153,21 @@ export function Table(tableData: TableDataType) {
 
       list[columnToUpdate[0]] = columnToUpdate[1] + deltaOffset;
 
-      // cancelling previous timeout
       if (persistSizingTimeout) {
         clearTimeout(persistSizingTimeout);
       }
-      // setting new timeout
       setPersistSizingTimeout(
         setTimeout(() => {
           columnActions.alterColumnSize(
             columnToUpdate[0],
             columnToUpdate[1] + deltaOffset
           );
-          // timeout until event is triggered after user has stopped typing
         }, 1500)
       );
 
       setColumnSizing(list);
     },
     onColumnOrderChange: setColumnOrder,
-    // Hack to force react-table to use all columns when filtering
     getColumnCanGlobalFilter: () => true,
     globalFilterFn: globalDatabaseFilterFn(configInfo.getLocalSettings()),
     filterFns: customSortingfns,
@@ -210,6 +196,21 @@ export function Table(tableData: TableDataType) {
     rowsActions.insertRows();
   }, []);
 
+  // ---- Virtual scrolling ----
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const tableRows = table.getRowModel().rows;
+  const totalSize = table.getTotalSize();
+
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
+
+  const headerGroups = table.getHeaderGroups();
+  const footerGroups = table.getFooterGroups();
+
   return (
     <>
       <HeaderNavBar
@@ -220,19 +221,25 @@ export function Table(tableData: TableDataType) {
           setGlobalFilter: setGlobalFilter,
         }}
       />
-      {/* SCROLL CONTAINER */}
-      <div className={c("scroll-container scroll-horizontal")}>
-        {/* INIT TABLE */}
+      {/* SCROLL CONTAINER — virtualized body */}
+      <div
+        ref={scrollContainerRef}
+        className={c("scroll-container scroll-horizontal")}
+        style={{ height: "calc(100vh - 200px)", overflow: "auto" }}
+      >
+        {/* TABLE */}
         <div
           key={`div-table`}
           className={`${c("table noselect cell_size_" + cell_size_config + (sticky_first_column_config ? " sticky_first_column" : ""))}`}
           onMouseOver={obsidianMdLinksOnMouseOverMenuCallback(view)}
           onMouseDown={obsidianMdLinksOnClickCallback(stateManager, view, filePath)}
           onKeyDown={onKeyDownArrowKeys}
-          style={{ width: table.getCenterTotalSize() }}
+          style={{ width: totalSize }}
         >
-          <div key={`div-thead-sticky`} className={c(`thead sticky-top`)}>
-            {table.getHeaderGroups().map((headerGroup, headerGroupIndex) => {
+          {/* STICKY HEADER */}
+          <div key={`div-thead-sticky`} className={c(`thead sticky-top`)}
+            style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--background-primary)" }}>
+            {headerGroups.map((headerGroup, headerGroupIndex) => {
               const headerContext = headerGroup.headers.find(h => h.id === MetadataColumns.ROW_CONTEXT_MENU);
               const addColumnHeader = headerGroup.headers.find(h => h.id === MetadataColumns.ADD_COLUMN);
               return (
@@ -248,12 +255,54 @@ export function Table(tableData: TableDataType) {
               );
             })}
           </div>
-          <div key={`div-tbody`} className={c(`tbody`)}>
-            {table.getRowModel().rows.map((row: Row<RowDataType>) => (
-              <TableRow key={`table-cell-${row.index}`} row={row} table={table} />
-            ))}
+
+          {/* VIRTUALIZED BODY */}
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = tableRows[virtualRow.index];
+              return (
+                <div
+                  key={`virtual-row-${row.id}`}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div key={`cell-tr-${row.id}`}
+                    className={`${c("tr" + (row.getIsSelected() ? " row-selected" : ""))}`}
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "auto 32px" }}>
+                    {row.getVisibleCells().map((cell: Cell<RowDataType, Literal>, cellIndex: number) => {
+                      return (
+                        <div
+                          key={`cell-td-${cell.id}-${cellIndex}`}
+                          className={`${c("td" + (cellIndex === 0 ? " row-context-menu" : ""))} data-input`}
+                        >
+                          {flexRenderFn(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {row.getIsExpanded() ? (
+                    <div key={`expanded-cell-tr-${row.id}`} className={c("row-extend-decorator")}>
+                      {/* Expanded content — simplified for virtual mode */}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
-          {/* INIT FOOTER */}
+
+          {/* FOOTER */}
           <div key={`div-tfoot`} className={c(`tfoot`)}>
             <div className={c(`tr footer-group`)}>
               <div
@@ -270,7 +319,7 @@ export function Table(tableData: TableDataType) {
                 +
               </div>
               {Array.from(
-                Array(table.getFooterGroups()[0].headers.length - 1)
+                Array(footerGroups[0]?.headers.length - 1 || 0)
               ).map((_, index) => (
                 <div
                   className={c(`td`)}
@@ -279,43 +328,36 @@ export function Table(tableData: TableDataType) {
               ))}
             </div>
             {configInfo.getLocalSettings().enable_footer
-              ? table
-                  .getFooterGroups()
-                  .map((footerGroup: HeaderGroup<RowDataType>) => {
-                    return (
-                      <div
-                        key={`footer-group-${footerGroup.id}`}
-                        className={`${c("tr footer-group")}`}
-                      >
-                        {footerGroup.headers.map(
-                          (header: Header<RowDataType, TableColumn>) => (
-                            <TableFooter
-                              key={`table-footer-${header.index}`}
-                              table={table}
-                              header={header}
-                            />
-                          )
-                        )}
-                      </div>
-                    );
-                  })
+              ? footerGroups.map((footerGroup: HeaderGroup<RowDataType>) => {
+                  return (
+                    <div
+                      key={`footer-group-${footerGroup.id}`}
+                      className={`${c("tr footer-group")}`}
+                    >
+                      {footerGroup.headers.map(
+                        (header: Header<RowDataType, TableColumn>) => (
+                          <TableFooter
+                            key={`table-footer-${header.index}`}
+                            table={table}
+                            header={header}
+                          />
+                        )
+                      )}
+                    </div>
+                  );
+                })
               : null}
-            {/* ENDS FOOTER */}
           </div>
-          {/* ENDS TABLE */}
         </div>
-        {/* ENDS SCROLL CONTAINER */}
       </div>
-      {/* INIT DEBUG INFO */}
+      {/* DEBUG INFO */}
       {globalConfig.enable_show_state && (
         <pre>
           <code>{JSON.stringify(table.getState(), null, 2)}</code>
         </pre>
       )}
-      {/* ENDS DEBUG INFO */}
-      {/* INIT TABLE ACTIONS */}
+      {/* TABLE ACTIONS */}
       <TableActions table={table} />
-      {/* ENDS TABLE ACTIONS */}
     </>
   );
 }
